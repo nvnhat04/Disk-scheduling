@@ -26,9 +26,9 @@
 <body>
     <div class="controls">
         <label for="trackCount">Số lượng track:</label>
-        <input type="number" id="trackCount" value="5000" min="1" step="1" placeholder="Số nguyên dương">
+        <input type="number" id="trackCount" value="" min="1" step="1" placeholder="Số nguyên dương">
         <label for="currentTrack">Track hiện tại:</label>
-        <input type="number" id="currentTrack" value="2150" min="0" step="1" placeholder="Từ 0 đến trackCount-1">
+        <input type="number" id="currentTrack" value="" min="0" step="1" placeholder="Từ 0 đến trackCount-1">
         <label for="previousTrack">Track trước đó:</label>
         <input type="number" id="previousTrack" min="0" step="1" placeholder="Mặc định 0 nếu trống">
         <label for="requests">Yêu cầu track (phân tách bằng dấu phẩy):</label>
@@ -181,22 +181,28 @@
         }
 
         // Thuật toán SCAN
-        function SCAN(currentTrack, requests, direction) {
-            const sortedRequests = [...requests].sort((a, b) => a - b);
-            const left = sortedRequests.filter(t => t <= currentTrack);
-            const right = sortedRequests.filter(t => t > currentTrack);
-            let path = [currentTrack];
-            let totalMovement = 0;
-            if (direction === "up") {
-                path = path.concat([...right, TRACK_COUNT - 1, ...left.reverse()]);
-            } else {
-                path = path.concat([0, ...left.reverse(), ...right]);
-            }
-            for (let i = 1; i < path.length; i++) {
-                totalMovement += Math.abs(path[i] - path[i - 1]);
-            }
-            return { path, totalMovement };
+      function SCAN(currentTrack, requests, direction) {
+        const sortedRequests = [...requests].sort((a, b) => a - b);
+        const left = sortedRequests.filter(t => t < currentTrack);
+        const right = sortedRequests.filter(t => t >= currentTrack);
+
+        let path = [currentTrack];
+        let sequence;
+
+        if (direction === "up") {
+            sequence = [...right, TRACK_COUNT - 1, ...left.reverse()];
+        } else {
+            sequence = [...left.reverse(), 0, ...right];
         }
+
+        path = path.concat(sequence);
+        let totalMovement = 0;
+        for (let i = 1; i < path.length; i++) {
+            totalMovement += Math.abs(path[i] - path[i - 1]);
+        }
+
+        return { path, totalMovement };
+    }
 
         function CSCAN(currentTrack, requests, direction) {
             const sortedRequests = [...requests].sort((a, b) => a - b);
