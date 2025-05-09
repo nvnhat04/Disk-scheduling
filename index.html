@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Mô phỏng Lập lịch Đĩa</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        canvas { border: 1px solid #ccc; }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            flex-direction: column;
+        }
+        label {
+            margin-right: 5px;
+            white-space: nowrap;
+        }
+        input[type="number"], input[type="text"], select {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <label for="trackCount">Số lượng track:</label>
+        <input type="number" id="trackCount" value="5000" min="1" step="1" placeholder="Số nguyên dương">
+        <label for="currentTrack">Track hiện tại:</label>
+        <input type="number" id="currentTrack" value="2150" min="0" step="1" placeholder="Từ 0 đến trackCount-1">
+        <label for="previousTrack">Track trước đó:</label>
+        <input type="number" id="previousTrack" min="0" step="1" placeholder="Mặc định 0 nếu trống">
+        <label for="requests">Yêu cầu track (phân tách bằng dấu phẩy):</label>
+        <input type="text" id="requests" value="" placeholder="VD: 2069,1212,2296">
+        <label for="algorithm">Thuật toán:</label>
+        <select id="algorithm">
+            <option value="FCFS">FCFS</option>
+            <option value="SSTF">SSTF</option>
+            <option value="SCAN">SCAN</option>
+            <option value="CSCAN">C-SCAN</option>
+            <option value="LOOK">LOOK</option>
+            <option value="CLOOK">C-LOOK</option>
+        </select>
+        <button onclick="runAlgorithm()">Chạy</button>
+    </div>
+    <canvas id="diskCanvas" width="800" height="400"></canvas>
+    <div>
+        <p>Đường đi: <span id="path"></span></p>
+        <p>Tổng quãng đường: <span id="totalMovement"></span></p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("diskCanvas");
+        const ctx = canvas.getContext("2d");
+        const pathElement = document.getElementById("path");
+        const totalMovementElement = document.getElementById("totalMovement");
+
+        // Constants
+        const MARGIN = 50;
+        let TRACK_COUNT = 5000; // Số lượng track mặc định
+
+        // Vẽ các track trên canvas
+        function drawDisk() {
+            if (TRACK_COUNT <= 0) return; // Ngăn lỗi khi TRACK_COUNT không hợp lệ
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#333";
+            ctx.font = "12px Arial";
+
+            // Tính số nhãn hiển thị
+            const maxLabels = 10;
+            const labelStep = Math.max(1, Math.ceil(TRACK_COUNT / maxLabels));
+            const displayTracks = Array.from(
+                { length: Math.floor(TRACK_COUNT / labelStep) + 1 },
+                (_, i) => i * labelStep
+            ).filter(t => t < TRACK_COUNT);
+            if (!displayTracks.includes(TRACK_COUNT - 1)) {
+                displayTracks.push(TRACK_COUNT - 1);
+            }
+
+            // Vẽ nhãn và lưới
+            displayTracks.forEach(track => {
+                const x = MARGIN + track * (canvas.width - 2 * MARGIN) / TRACK_COUNT;
+                ctx.fillText(track.toString(), x - 15, canvas.height - MARGIN + 20);
+                ctx.beginPath();
+                ctx.moveTo(x, MARGIN);
+                ctx.lineTo(x, canvas.height - MARGIN);
+                ctx.strokeStyle = "#ddd";
+                ctx.stroke();
+            });
+        }
+
+        // Vẽ đường đi của đầu đọc
+        function drawMovement(path, totalMovement) {
+            if (TRACK_COUNT <= 0) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawDisk();
+
+            ctx.strokeStyle = "#FF5733";
+            ctx.lineWidth = 2;
+            ctx.fillStyle = "#FF5733";
+            ctx.font = "12px Arial";
+
+            // Tính vị trí y cho các điểm dừng
+            const yPositions = path.length > 1
+                ? Array.from({ length: path.length }, (_, i) =>
+                    MARGIN + (i * (canvas.height - 2 * MARGIN)) / (path.length - 1))
+                : [canvas.height / 2];
+
+            // Vẽ đường nối
+            ctx.beginPath();
+            for (let i = 0; i < path.length; i++) {
+                const x = MARGIN + path[i] * (canvas.width - 2 * MARGIN) / TRACK_COUNT;
+                const y = yPositions[i];
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+
+            // Vẽ điểm dừng và nhãn
+            for (let i = 0; i < path.length; i++) {
+                const x = MARGIN + path[i] * (canvas.width - 2 * MARGIN) / TRACK_COUNT;
+                const y = yPositions[i];
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fill();
+                const labelX = i % 2 === 0 ? x + 10 : x - 30;
+                ctx.fillText(path[i].toString(), labelX, y - 5);
+            }
+
+            // Đánh dấu điểm bắt đầu
+            if (path.length > 0) {
+                const startX = MARGIN + path[0] * (canvas.width - 2 * MARGIN) / TRACK_COUNT;
+                const startY = yPositions[0];
+                ctx.fillStyle = "#4CAF50";
+                ctx.beginPath();
+                ctx.arc(startX, startY, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillText("Start", startX + 15, startY - 15);
+            }
+
+            pathElement.textContent = path.join(" → ");
+            totalMovementElement.textContent = totalMovement;
+        }
+
+        // Thuật toán FCFS
+        function FCFS(currentTrack, requests) {
+            let path = [currentTrack, ...requests];
+            let totalMovement = 0;
+            for (let i = 1; i < path.length; i++) {
+                totalMovement += Math.abs(path[i] - path[i - 1]);
+            }
+            return { path, totalMovement };
+        }
+
+        // Thuật toán SSTF
+        function SSTF(currentTrack, requests) {
+            let path = [currentTrack];
+            let totalMovement = 0;
+            let remainingRequests = [...requests];
+            while (remainingRequests.length > 0) {
+                let closestTrack = remainingRequests[0];
+                let minDistance = Math.abs(closestTrack - path[path.length - 1]);
+                let closestIndex = 0;
+                for (let i = 1; i < remainingRequests.length; i++) {
+                    let distance = Math.abs(remainingRequests[i] - path[path.length - 1]);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestTrack = remainingRequests[i];
+                        closestIndex = i;
+                    }
+                }
+                path.push(closestTrack);
+                totalMovement += minDistance;
+                remainingRequests.splice(closestIndex, 1);
+            }
+            return { path, totalMovement };
+        }
+
+        // Thuật toán SCAN
+        function SCAN(currentTrack, requests, direction) {
+            const sortedRequests = [...requests].sort((a, b) => a - b);
+            const left = sortedRequests.filter(t => t <= currentTrack);
+            const right = sortedRequests.filter(t => t > currentTrack);
+            let path = [currentTrack];
+            let totalMovement = 0;
+            if (direction === "up") {
+                path = path.concat([...right, TRACK_COUNT - 1, ...left.reverse()]);
+            } else {
+                path = path.concat([0, ...left.reverse(), ...right]);
+            }
+            for (let i = 1; i < path.length; i++) {
+                totalMovement += Math.abs(path[i] - path[i - 1]);
+            }
+            return { path, totalMovement };
+        }
+
+        function CSCAN(currentTrack, requests, direction) {
+            const sortedRequests = [...requests].sort((a, b) => a - b);
+            const left = sortedRequests.filter(t => t <= currentTrack);
+            const right = sortedRequests.filter(t => t > currentTrack);
+            let path = [currentTrack];
+            let totalMovement = 0;
+            if (direction === "up") {
+                path = path.concat([...right, TRACK_COUNT - 1, 0, ...left]);
+            } else {
+                path = path.concat([0, TRACK_COUNT - 1, ...right, ...left.reverse()]);
+            }
+            for (let i = 1; i < path.length; i++) {
+                totalMovement += Math.abs(path[i] - path[i - 1]);
+            }
+            return { path, totalMovement };
+        }
+
+
+        function LOOK(currentTrack, requests, direction) {
+            const sortedRequests = [...requests].sort((a, b) => a - b);
+            const left = sortedRequests.filter(t => t <= currentTrack);
+            const right = sortedRequests.filter(t => t > currentTrack);
+            let path = [currentTrack];
+            let totalMovement = 0;
+            if (direction === "up") {
+                path = path.concat([...right, ...left.reverse()]);
+            } else {
+                path = path.concat([...left.reverse(), ...right]);
+            }
+            for (let i = 1; i < path.length; i++) {
+                totalMovement += Math.abs(path[i] - path[i - 1]);
+            }
+            return { path, totalMovement };
+        }
+
+        function CLOOK(currentTrack, requests, direction) {
+            let path = [currentTrack];
+            let totalMovement = 0;
+            if (requests.length === 0) {
+                return { path, totalMovement };
+            }
+            const sortedRequests = [...requests].sort((a, b) => a - b);
+            const left = sortedRequests.filter(t => t <= currentTrack);
+            const right = sortedRequests.filter(t => t > currentTrack);
+            if (direction === "up") {
+                const minRequest = Math.min(...requests);
+                const filteredLeft = left.filter(t => t !== minRequest);
+                path = path.concat([...right, minRequest, ...filteredLeft]);
+            } else {
+                const maxRequest = Math.max(...requests);
+                const filteredRight = right.filter(t => t !== maxRequest);
+                path = path.concat([...left.reverse(), maxRequest, ...filteredRight.reverse()]);
+            }
+            for (let i = 1; i < path.length; i++) {
+                totalMovement += Math.abs(path[i] - path[i - 1]);
+            }
+            return { path, totalMovement };
+        }
+
+        // Chạy thuật toán
+        function runAlgorithm() {
+            const trackCountInput = parseFloat(document.getElementById("trackCount").value);
+            const currentTrackInput = parseFloat(document.getElementById("currentTrack").value);
+            let previousTrackInput = parseFloat(document.getElementById("previousTrack").value);
+
+            // Kiểm tra số nguyên
+            if (!Number.isInteger(trackCountInput)) {
+                alert("Số lượng track phải là số nguyên dương!");
+                return;
+            }
+            if (!Number.isInteger(currentTrackInput)) {
+                alert("Track hiện tại phải là số nguyên!");
+                return;
+            }
+            if (!isNaN(previousTrackInput) && !Number.isInteger(previousTrackInput)) {
+                alert("Track trước đó phải là số nguyên!");
+                return;
+            }
+
+            // Chuyển đổi sang số nguyên
+            TRACK_COUNT = trackCountInput;
+            const currentTrack = currentTrackInput;
+            let previousTrack = isNaN(previousTrackInput) ? 0 : previousTrackInput;
+
+            const rawRequests = document.getElementById("requests").value;
+            const requests = rawRequests
+                .split(",")
+                .map(t => {
+                    const num = parseFloat(t.trim());
+                    return Number.isInteger(num) ? num : NaN;
+                })
+                .filter(t => !isNaN(t));
+
+            const algorithm = document.getElementById("algorithm").value;
+
+            // Kiểm tra input
+            if (isNaN(TRACK_COUNT) || TRACK_COUNT <= 0) {
+                alert("Số lượng track phải là số nguyên dương!");
+                return;
+            }
+            if (isNaN(currentTrack) || currentTrack >= TRACK_COUNT || currentTrack < 0) {
+                alert(`Track hiện tại phải từ 0 đến ${TRACK_COUNT - 1}!`);
+                return;
+            }
+            if (previousTrack >= TRACK_COUNT || previousTrack < 0) {
+                alert(`Track trước đó phải từ 0 đến ${TRACK_COUNT - 1}!`);
+                return;
+            }
+            if (rawRequests.trim() === "" || requests.length === 0) {
+                alert("Danh sách yêu cầu track không được rỗng hoặc chứa giá trị không hợp lệ!");
+                return;
+            }
+            if (requests.some(t => !Number.isInteger(t))) {
+                alert("Yêu cầu track phải là số nguyên!");
+                return;
+            }
+            if (requests.some(t => t >= TRACK_COUNT || t < 0)) {
+                alert(`Yêu cầu track phải từ 0 đến ${TRACK_COUNT - 1}!`);
+                return;
+            }
+
+            // Xác định direction
+            const direction = currentTrack === previousTrack ? "up" : currentTrack > previousTrack ? "up" : "down";
+
+            let result;
+            switch (algorithm) {
+                case "FCFS":
+                    result = FCFS(currentTrack, requests, direction);
+                    break;
+                case "SSTF":
+                    result = SSTF(currentTrack, requests, direction);
+                    break;
+                case "SCAN":
+                    result = SCAN(currentTrack, requests, direction);
+                    break;
+                case "CSCAN":
+                    result = CSCAN(currentTrack, requests, direction);
+                    break;
+                case "LOOK":
+                    result = LOOK(currentTrack, requests, direction);
+                    break;
+                case "CLOOK":
+                    result = CLOOK(currentTrack, requests, direction);
+                    break;
+            }
+
+            drawDisk();
+            drawMovement(result.path, result.totalMovement);
+        }
+
+        // Cập nhật canvas khi thay đổi trackCount
+        document.getElementById("trackCount").addEventListener("input", () => {
+            const trackCountInput = parseFloat(document.getElementById("trackCount").value);
+            if (Number.isInteger(trackCountInput) && trackCountInput > 0) {
+                TRACK_COUNT = trackCountInput;
+                drawDisk();
+            }
+        });
+
+        // Khởi tạo
+        drawDisk();
+    </script>
+</body>
+</html>
